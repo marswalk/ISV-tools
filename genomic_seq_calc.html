@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genomic Sequence & PCR Analyzer</title>
+    <meta name="description" content="Dynamically compute protein sizes, evaluate point mutations, and output PCR primers.">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Tahoma', 'Arial', sans-serif;
+            background: #c0c0c0;
+            color: #000000;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #app { display: flex; flex-direction: column; height: 100vh; }
+
+        header {
+            background: linear-gradient(90deg, #000080 0%, #1084d0 100%);
+            padding: 4px 8px;
+            display: flex; align-items: center; justify-content: space-between;
+            color: #ffffff; font-weight: bold; font-size: 13px;
+            flex-shrink: 0; border-bottom: 2px solid #808080;
+        }
+        header h1 { font-size: 13px; font-weight: bold; color: #ffffff; }
+        header .subtitle { font-size: 10px; color: #d4d0c8; font-weight: normal; }
+        
+        header a {
+            color: #ffffff; text-decoration: none; font-size: 11px;
+            padding: 2px 6px; border: 1px solid #ffffff; background: #000080;
+        }
+        header a:hover { background: #1084d0; }
+
+        main {
+            display: flex; flex: 1; overflow: hidden;
+            padding: 4px; gap: 4px; background: #808080;
+        }
+
+        #sidebar {
+            width: 320px; min-width: 320px;
+            background: #d4d0c8;
+            border: 2px solid; border-color: #ffffff #808080 #808080 #ffffff;
+            padding: 6px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 3px;
+            scrollbar-width: thin;
+        }
+
+        #content {
+            flex: 1; background: #d4d0c8;
+            border: 2px solid; border-color: #ffffff #808080 #808080 #ffffff;
+            overflow-y: hidden; padding: 8px;
+            display: flex; flex-direction: column; gap: 0;
+            position: relative;
+        }
+
+        .section-label {
+            font-size: 9px; font-weight: bold; text-transform: uppercase;
+            letter-spacing: 0.5px; color: #000000;
+            margin: 4px 0 2px 2px;
+            border-bottom: 1px solid #808080; padding-bottom: 2px;
+        }
+        .section-label:first-child { margin-top: 0; }
+
+        .form-row { display: flex; align-items: center; gap: 4px; margin-bottom: 3px; }
+        .form-row label { font-size: 11px; min-width: 80px; flex-shrink: 0; }
+
+        .win-input {
+            background: #ffffff;
+            border: 2px solid; border-color: #808080 #ffffff #ffffff #808080;
+            padding: 2px 4px; font-size: 11px; font-family: inherit; color: #000000;
+            outline: none; flex: 1;
+        }
+        .win-input:focus { outline: 1px dotted #000080; outline-offset: -1px; }
+        .win-input.narrow { flex: none; width: 60px; }
+
+        .area-header {
+            display: flex; align-items: center; gap: 6px;
+            border-bottom: 2px solid #808080;
+            padding-bottom: 4px; margin-bottom: 10px; flex-shrink: 0;
+        }
+        .area-badge {
+            background: #000080; color: #ffffff;
+            font-size: 11px; font-weight: bold; padding: 2px 10px;
+            letter-spacing: 1px;
+        }
+        .area-title { font-size: 11px; font-weight: bold; }
+
+        .result-box {
+            background: #ffffff;
+            border: 2px solid; border-color: #808080 #ffffff #ffffff #808080;
+            padding: 4px 6px;
+            font-family: monospace; font-size: 12px; min-height: 24px;
+            word-break: break-all;
+            margin-bottom: 8px; user-select: text;
+        }
+
+        footer#status {
+            background: #d4d0c8; border-top: 2px solid #808080;
+            padding: 3px 6px; font-size: 11px; color: #000000;
+            box-shadow: inset 1px 1px 0 #ffffff; flex-shrink: 0;
+        }
+
+        /* Guided Grid Styles */
+        #sequenceGrid {
+            display: flex; flex-wrap: wrap; align-content: flex-start;
+            height: 100%; overflow-y: auto; padding-right: 8px;
+            padding-bottom: 40px; scrollbar-width: thin;
+        }
+        .seq-group {
+            display: flex; gap: 4px; margin-right: 8px; margin-bottom: 4px;
+        }
+        .seq-box {
+            width: 24px; height: 32px;
+            background: #ffffff;
+            border: 2px solid; border-color: #808080 #ffffff #ffffff #808080;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 16px; font-family: monospace;
+            color: #000080;
+            user-select: none;
+        }
+        .seq-box.highlight {
+            background: #ffff00; color: #ff0000; border-color: #ff0000;
+        }
+        .seq-box.prompt {
+            color: #000000; animation: blink 1s step-end infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        /* Hidden text area overlay */
+        #hiddenInput {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            opacity: 0; cursor: text; resize: none; z-index: 10;
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <header>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span>🔬</span>
+            <h1>Genomic Sequence & PCR Analyzer</h1>
+        </div>
+        <div>
+            <span class="subtitle" style="margin-right: 10px;">Guided Sequence Grid</span>
+            <a href="index.html">&lt; Back to Launcher</a>
+        </div>
+    </header>
+
+    <main>
+        <!-- Left Sidebar: Analysis and Mutator -->
+        <div id="sidebar">
+            <div class="area-header">
+                <span class="area-badge">RESULTS</span>
+                <span class="area-title">Sequence Analysis</span>
+            </div>
+
+            <div class="section-label">Translation & Stop-Codon Engine</div>
+            <div style="background: #e0ded9; border: 1px solid #808080; padding: 8px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 12px;">Protein Size (Amino Acids):</span>
+                <span id="proteinSize" style="font-size: 16px; font-weight: bold; color: #000080;">0</span>
+            </div>
+
+            <div class="section-label" style="margin-top: 10px;">Dynamic Mutation Modifier</div>
+            <div style="font-size: 10px; color: #606060; margin-bottom: 6px;">Test point mutations interactively</div>
+            
+            <div class="form-row">
+                <label>Type</label>
+                <select id="mutType" class="win-input">
+                    <option value="none">None</option>
+                    <option value="sub">Substitution (-> X)</option>
+                    <option value="dup">Duplication</option>
+                    <option value="del">Deletion</option>
+                    <option value="ins">Insertion</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Index (1-based)</label>
+                <input type="number" id="mutIndex" class="win-input narrow" min="1" placeholder="Idx">
+            </div>
+            <div class="form-row" id="mutCharRow" style="display:none;">
+                <label>Base (A,T,C,G)</label>
+                <input type="text" id="mutChar" class="win-input narrow" maxlength="1" placeholder="C">
+            </div>
+
+            <div class="section-label" style="margin-top: 16px;">Theoretical PCR Primer Designer</div>
+            <div class="form-row">
+                <label>Genome Size (N)</label>
+                <input type="number" id="genomeSize" class="win-input" value="12000000">
+            </div>
+            <div class="form-row" style="margin-top: 6px;">
+                <label style="width: auto;">
+                    <input type="checkbox" id="addSecurity"> Add +2 bases security
+                </label>
+            </div>
+
+            <div style="margin-bottom: 6px; font-size: 11px; margin-top: 8px;">
+                <strong>Minimal Primer Length (L):</strong> <span id="primerL">0</span> bp
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+                <div style="background: #c8c4bc; border: 2px solid; border-color: #808080 #ffffff #ffffff #808080; padding: 6px;">
+                    <div class="section-label">Amorce 1 (Forward, 5' &rarr; 3')</div>
+                    <div id="amorce1" class="result-box" style="margin-bottom: 0;"></div>
+                </div>
+                <div style="background: #c8c4bc; border: 2px solid; border-color: #808080 #ffffff #ffffff #808080; padding: 6px;">
+                    <div class="section-label">Amorce 2 (Reverse, 5' &rarr; 3')</div>
+                    <div id="amorce2" class="result-box" style="margin-bottom: 0;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Content: Guided Interactive Grid -->
+        <div id="content">
+            <div class="area-header">
+                <span class="area-badge">INPUT</span>
+                <span class="area-title">Interactive Sequence Grid</span>
+                <span style="margin-left: auto; font-size: 10px; color: #606060;">Click anywhere to type/paste</span>
+            </div>
+            
+            <div style="position: relative; flex: 1; overflow: hidden; margin-top: 4px;">
+                <textarea id="hiddenInput" spellcheck="false"></textarea>
+                <div id="sequenceGrid">
+                    <!-- Rendered boxes go here -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer id="status">Ready. Click the grid and start typing A, T, C, G or paste your sequence.</footer>
+</div>
+
+<script>
+    const elHiddenInput = document.getElementById('hiddenInput');
+    const elSequenceGrid = document.getElementById('sequenceGrid');
+    const elMutType = document.getElementById('mutType');
+    const elMutIndex = document.getElementById('mutIndex');
+    const elMutCharRow = document.getElementById('mutCharRow');
+    const elMutChar = document.getElementById('mutChar');
+    const elGenomeSize = document.getElementById('genomeSize');
+    const elAddSecurity = document.getElementById('addSecurity');
+    
+    const elProteinSize = document.getElementById('proteinSize');
+    const elPrimerL = document.getElementById('primerL');
+    const elAmorce1 = document.getElementById('amorce1');
+    const elAmorce2 = document.getElementById('amorce2');
+    const elStatus = document.getElementById('status');
+
+    let originalSequence = "";
+
+    function get_protein_size(seq) {
+        if (!seq) return 0;
+        let s = seq.toLowerCase().replace(/t/g, 'u').replace(/\s+/g, '');
+        let startIdx = s.indexOf('aug');
+        if (startIdx === -1) return 0;
+        
+        let count = 0;
+        for (let i = startIdx; i <= s.length - 3; i += 3) {
+            let codon = s.substring(i, i + 3);
+            if (codon === 'uaa' || codon === 'uag' || codon === 'uga') {
+                break;
+            }
+            count++;
+        }
+        return count;
+    }
+
+    function getReverseComplement(s) {
+        const map = {'A':'T', 'T':'A', 'C':'G', 'G':'C', 'a':'t', 't':'a', 'c':'g', 'g':'c', 'U':'A', 'u':'a'};
+        let rc = '';
+        for (let i = s.length - 1; i >= 0; i--) {
+            rc += map[s[i]] || s[i];
+        }
+        return rc.toUpperCase();
+    }
+
+    function calculate_pcr(seq, n, override) {
+        if (!seq || !n || isNaN(n) || n <= 0) return null;
+        let l = Math.ceil(Math.log(n) / Math.log(4));
+        if (override) l += 2;
+        
+        if (seq.length < l) {
+            return { l, amorce1: 'Seq too short', amorce2: 'Seq too short' };
+        }
+        
+        let amorce1 = seq.substring(0, l).toUpperCase();
+        let trailing = seq.substring(seq.length - l);
+        let amorce2 = getReverseComplement(trailing);
+        
+        return { l, amorce1, amorce2 };
+    }
+
+    function renderGridAndGetEffective() {
+        let s = originalSequence;
+        const type = elMutType.value;
+        const index = parseInt(elMutIndex.value) - 1;
+        
+        // Strict filter for mutation char
+        let rawChar = elMutChar.value || "";
+        let char = rawChar.replace(/[^ATCGatcg]/g, '').toUpperCase();
+        if (rawChar !== char) {
+            elMutChar.value = char; // Fix it in the UI automatically
+        }
+        
+        let html = '<div class="seq-group">';
+        let effectiveSeq = "";
+        let effectiveCount = 0;
+        
+        function addHTML(c, isHighlight) {
+            if (effectiveCount > 0 && effectiveCount % 10 === 0) {
+                html += '</div><div class="seq-group">';
+            }
+            let classes = "seq-box";
+            if (isHighlight) classes += " highlight";
+            
+            html += `<div class="${classes}">${c}</div>`;
+            effectiveSeq += c;
+            effectiveCount++;
+        }
+        
+        for (let pos = 0; pos <= s.length; pos++) {
+            if (type === 'ins' && pos === index) {
+                if (char) addHTML(char, true);
+            }
+            
+            if (pos === s.length) break;
+            
+            let c = s.charAt(pos);
+            if (pos === index) {
+                if (type === 'sub') {
+                    if (char) {
+                        addHTML(char, true);
+                    } else {
+                        addHTML(c, false);
+                    }
+                } else if (type === 'del') {
+                    // skip
+                } else if (type === 'dup') {
+                    addHTML(c, true);
+                    addHTML(c, true);
+                } else {
+                    addHTML(c, false);
+                }
+            } else {
+                addHTML(c, false);
+            }
+        }
+        
+        // Add prompt box
+        if (effectiveCount > 0 && effectiveCount % 10 === 0) {
+            html += '</div><div class="seq-group">';
+        }
+        html += `<div class="seq-box prompt">_</div>`;
+        html += '</div>';
+        
+        elSequenceGrid.innerHTML = html;
+        return effectiveSeq;
+    }
+
+    function update() {
+        elMutCharRow.style.display = (elMutType.value === 'sub' || elMutType.value === 'ins') ? 'flex' : 'none';
+        
+        const effectiveSeq = renderGridAndGetEffective();
+        
+        const proteinSize = get_protein_size(effectiveSeq);
+        elProteinSize.textContent = proteinSize;
+        
+        const n = parseInt(elGenomeSize.value);
+        const override = elAddSecurity.checked;
+        
+        const pcr = calculate_pcr(effectiveSeq, n, override);
+        if (pcr) {
+            elPrimerL.textContent = pcr.l;
+            elAmorce1.textContent = pcr.amorce1;
+            elAmorce2.textContent = pcr.amorce2;
+        } else {
+            elPrimerL.textContent = "0";
+            elAmorce1.textContent = "";
+            elAmorce2.textContent = "";
+        }
+        
+        if (effectiveSeq) {
+            elStatus.textContent = `Sequence length: ${effectiveSeq.length} bases. Protein size: ${proteinSize} aa.`;
+        } else {
+            elStatus.textContent = `Ready. Click the grid and start typing A, T, C, G or paste your sequence.`;
+        }
+    }
+
+    elHiddenInput.addEventListener('input', (e) => {
+        // Aggressive filtering: only allow ATCG, uppercase immediately
+        let raw = elHiddenInput.value;
+        let filtered = raw.replace(/[^ATCGatcg]/g, '').toUpperCase();
+        
+        // Write back if different to enforce the restriction in the hidden textarea itself
+        if (raw !== filtered) {
+            elHiddenInput.value = filtered;
+        }
+        
+        originalSequence = filtered;
+        update();
+    });
+
+    [elMutType, elMutIndex, elMutChar, elGenomeSize, elAddSecurity].forEach(el => {
+        el.addEventListener('input', update);
+        el.addEventListener('change', update);
+    });
+
+    // Auto-focus the grid when clicking anywhere in the container
+    document.getElementById('content').addEventListener('click', () => {
+        elHiddenInput.focus();
+    });
+
+    // Initial render
+    update();
+</script>
+</body>
+</html>
