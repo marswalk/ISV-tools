@@ -123,7 +123,13 @@
             user-select: none;
         }
         .seq-box.highlight {
-            background: #ffff00; color: #ff0000; border-color: #ff0000;
+            background: #ffff00 !important; color: #ff0000 !important; border-color: #ff0000 !important;
+        }
+        .seq-box.start-codon {
+            background: #e6ffe6; border-color: #00aa00;
+        }
+        .seq-box.stop-codon {
+            background: #ffe6e6; border-color: #aa0000;
         }
         .seq-box.prompt {
             color: #000000; animation: blink 1s step-end infinite;
@@ -250,6 +256,51 @@
 
     let originalSequence = "";
 
+    function find_orf(seq) {
+        if (!seq) return null;
+        let s = seq.toLowerCase().replace(/t/g, 'u').replace(/\s+/g, '');
+        let startIdx = s.indexOf('aug');
+        if (startIdx === -1) return null;
+        
+        let stopIdx = -1;
+        for (let i = startIdx; i <= s.length - 3; i += 3) {
+            let codon = s.substring(i, i + 3);
+            if (codon === 'uaa' || codon === 'uag' || codon === 'uga') {
+                stopIdx = i;
+                break;
+            }
+        }
+        return { start: startIdx, stop: stopIdx };
+    }
+
+    function apply_mutation(seq, type, index, char) {
+        if (!seq) return "";
+        let s = seq.trim().replace(/\s+/g, '');
+        if (!s) return "";
+        
+        if (type === 'none' || !index || isNaN(index) || index < 1) return s;
+        
+        const i = parseInt(index) - 1; // 0-based
+        if (i < 0) return s;
+        
+        if (type === 'sub') {
+            if (!char) return s; // Do not shift if no char is provided
+            if (i >= s.length) return s;
+            return s.substring(0, i) + char + s.substring(i + 1);
+        } else if (type === 'dup') {
+            if (i >= s.length) return s;
+            const c = s.charAt(i);
+            return s.substring(0, i + 1) + c + s.substring(i + 1);
+        } else if (type === 'del') {
+            if (i >= s.length) return s;
+            return s.substring(0, i) + s.substring(i + 1);
+        } else if (type === 'ins') {
+            if (!char || i > s.length) return s;
+            return s.substring(0, i) + char + s.substring(i);
+        }
+        return s;
+    }
+
     function get_protein_size(seq) {
         if (!seq) return 0;
         let s = seq.toLowerCase().replace(/t/g, 'u').replace(/\s+/g, '');
@@ -292,7 +343,7 @@
         return { l, amorce1, amorce2 };
     }
 
-    function renderGridAndGetEffective() {
+    function renderGrid(orf) {
         let s = originalSequence;
         const type = elMutType.value;
         const index = parseInt(elMutIndex.value) - 1;
@@ -314,6 +365,14 @@
             }
             let classes = "seq-box";
             if (isHighlight) classes += " highlight";
+            
+            if (orf) {
+                if (effectiveCount >= orf.start && effectiveCount < orf.start + 3) {
+                    classes += " start-codon";
+                } else if (orf.stop !== -1 && effectiveCount >= orf.stop && effectiveCount < orf.stop + 3) {
+                    classes += " stop-codon";
+                }
+            }
             
             html += `<div class="${classes}">${c}</div>`;
             effectiveSeq += c;
@@ -356,13 +415,19 @@
         html += '</div>';
         
         elSequenceGrid.innerHTML = html;
-        return effectiveSeq;
     }
 
     function update() {
         elMutCharRow.style.display = (elMutType.value === 'sub' || elMutType.value === 'ins') ? 'flex' : 'none';
         
-        const effectiveSeq = renderGridAndGetEffective();
+        let rawChar = elMutChar.value || "";
+        let char = rawChar.replace(/[^ATCGatcg]/g, '').toUpperCase();
+        if (rawChar !== char) elMutChar.value = char;
+        
+        const effectiveSeq = apply_mutation(originalSequence, elMutType.value, elMutIndex.value, char);
+        const orf = find_orf(effectiveSeq);
+        
+        renderGrid(orf);
         
         const proteinSize = get_protein_size(effectiveSeq);
         elProteinSize.textContent = proteinSize;
